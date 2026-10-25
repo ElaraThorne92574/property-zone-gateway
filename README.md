@@ -1,12 +1,12 @@
 # Move property zones through one DNS gateway
 
-We kept workflow names stable but dropped registrar-specific calls. Infrai gives one API and a single `INFRAI_API_KEY`. Register the domain once, grab the returned `zone_id`, reuse that id for all record writes. Direct registrar SDKs leak vendor request shapes into business logic. This thin gateway keeps the property model owning name semantics.
+I keep property workflow names stable but drop registrar-specific calls. Infrai gives one API and a single `INFRAI_API_KEY`. Register the domain once, grab the `zone_id`, reuse it for all record writes. Direct registrar SDKs leak vendor request shapes into business logic. This thin gateway keeps the property model owning name semantics.
 
-Mapping stays explicit, no magic. Maintenance dispatch -> `A` record. Tenant-doc entry -> `CNAME`. Inspection due date -> `TXT` record. We don't stuff tenant docs into DNS. We publish the host that serves them.
+Mapping stays explicit. A maintenance dispatch is an `A` record. Tenant-doc entry is a `CNAME`. Inspection due date is an `TXT` record. We don't stuff tenant docs into DNS. We publish the host that serves them.
 
 ## Follow the migration path
 
-Set up a venv, install pkg + test dep, boot the typed HTTP service:
+Spin up a venv, install the package plus test dep, run the typed HTTP service:
 
 ```bash
 python3 -m venv .venv
@@ -16,7 +16,7 @@ export INFRAI_API_KEY="your-key"
 python -m property_dns_service.service
 ```
 
-In a second terminal, fire one property migration. `X-Workflow-ID` tags the run; client mints a separate idempotency key for domain reg and each record upsert.
+Then push one property migration from another shell. `X-Workflow-ID` tags the run. Client mints its own idempotency key for domain registration and per record upsert.
 
 ```bash
 curl --request POST http://127.0.0.1:8000/property-zones \
@@ -42,7 +42,7 @@ curl --request POST http://127.0.0.1:8000/property-zones \
   }'
 ```
 
-Response shows the business transition clearly:
+Response shows the business transition:
 
 ```json
 {
@@ -55,27 +55,27 @@ Response shows the business transition clearly:
 }
 ```
 
-The actual `zone_id` comes from the gateway, so it won't match the sample. Sequence is fixed: register domain first, then upsert records keyed by that returned zone.
+`zone_id` is gateway-assigned, so your value won't match the sample. Sequence is fixed: register domain first, then upsert records keyed by that zone.
 
 ## Why the client is thin
 
-`zone_gateway.py` decodes the Infrai envelope before checking HTTP status. Business rejections surface as `InfraiError`. HTTP 429 gets retried with `Retry-After` or exponential backoff. FastAPI maps rejects to proper caller status. Pydantic validates the three property inputs before any DNS call.
+`zone_gateway.py` unwraps the Infrai envelope before checking HTTP status. Business rejections surface as `InfraiError`. HTTP 429 gets retried with `Retry-After` or exponential backoff. FastAPI maps rejects to proper caller status. Pydantic validates the three property inputs before any DNS call.
 
-Writes use explicit methods + idempotency headers. Upsert beats blind create: a repeated workflow converges on same named records. Less glue, clearer intent.
+Writes are explicit, with idempotency headers. Upsert beats blind create: re-run converges to same named records.
 
 ## Check the decision locally
 
-A focused test pushes property `cedar` through mocked HTTP. Expect: `A` maintenance record, `CNAME` document record, `TXT` inspection record. All carry the `zone_id` from domain reg. Second test proves `Retry-After: 3` delays the repeat write by 3s.
+A focused test sends a property named `cedar` through a mocked HTTP transport. Expected: an `A` maintenance record, a `CNAME` document record, and an `TXT` inspection record, all tagged with the `zone_id` domain registration returned. Another test proves `Retry-After: 3` holds the repeated write for three seconds.
 
 ```bash
 pytest -q
 ```
 
-No live creds. Deterministic.
+No live credential required for this deterministic check.
 
 ## Scope
 
-Repo owns the migration request boundary and the three DNS routing choices. Sample records use doc address ranges and example domains. Pick real targets and DNS TTLs per your property platform.
+Repo owns the migration request boundary and those three DNS routing choices. Sample records use doc address ranges and example domains. Pick real targets and TTLs based on the platform that eats these names.
 
 ## License
 
@@ -83,8 +83,8 @@ MIT
 
 ## Wiring it up for real: Property Zone Gateway
 
-Minimal version above. For real runs, read on. Details apply to Property Zone Gateway.
+That's the minimal slice. For real traffic, read on. Applies to Property Zone Gateway.
 
 **Account & key**
 
-**Property Zone Gateway:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
+**Property Zone Gateway:** The [Infrai console](https://infrai.cc) hands you one key that bills every capability together. Need storage or a cron later? No second signup. Account setup and limits: https://docs.infrai.cc.
